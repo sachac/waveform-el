@@ -20,6 +20,8 @@
 
 ;;; Commentary:
 
+;; You will also need the mpv package for Emacs and the MPV client.
+;; 
 ;; M-x waveform-show to show the waveform for a file
 ;; left-click to copy timestamp and play
 ;; q to quit
@@ -115,14 +117,21 @@ FILENAME is the input file. The result can be used in `create-image'."
     (define-key map " " #'waveform-mpv-position)
     map))
 
-(defun waveform-play-sample (file ms &optional end-ms)
-  (mpv-kill)
-  (mpv-start file (format "--start=%.3f" (/ ms 1000.0))
-             (if (or end-ms waveform-sample-msecs)
-                 (format "--end=%.3f" (if end-ms (/ end-ms 1000.0)
-                                        (/ (+ ms waveform-sample-msecs) 1000.0)))
-               "")))
+(defvar waveform--sample-timer nil)
 
+(defun waveform--restore-mpv-position (msecs)
+  "Stop playing and seek to MSECS."
+  (mpv--enqueue '("pause") #'ignore)
+  (mpv-seek (/ msecs 1000.0)))
+
+(defun waveform-play-sample (file ms &optional end-ms)
+  (mpv-seek (/ ms 1000.0))
+  (when (or end-ms waveform-sample-msecs)
+    (when (timerp waveform--sample-timer) (cancel-timer waveform--sample-timer))
+    (setq waveform--sample-timer
+          (run-at-time (/ (if end-ms (- end-ms ms) waveform-sample-msecs) 1000.0) nil
+                       #'waveform--restore-mpv-position
+                       ms))))
 
 (defun waveform-file-duration-ms (filename &optional type)
   (* 1000
@@ -176,7 +185,8 @@ FILENAME is the input file. The result can be used in `create-image'."
                         'start-ms 0
                         'stop-ms end-ms))
     (read-only-mode 1)
-    (waveform-mode)))
+    (waveform-mode)
+    (mpv-start file)))
 
 (defun waveform-mouse-event-to-ms (event)
   "Return the millisecond position of EVENT."
