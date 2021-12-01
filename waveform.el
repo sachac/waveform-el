@@ -50,7 +50,7 @@ nil means keep playing."
   :type 'integer
   :group 'waveform)
 
-(defcustom waveform-ffmpeg-filter-args ":colors=white"  ;; #'waveform-fancy-filter
+(defcustom waveform-ffmpeg-filter-args 'waveform-fancy-filter
   "Additional arguments for the showwavespic filter.
 To change the foreground color, use something like
 \":colors=white\".  You can also set it to a function.  The
@@ -94,7 +94,7 @@ FILENAME is the input file. The result can be used in `create-image'."
             "-frames:v" "1"
             "-f" "image2" "-"))))
     (if (functionp callback)
-        (let* ((buffer (generate-new-buffer " *temp*" t)))
+        (let* ((buffer (generate-new-buffer " *temp*")))
 	        (when (process-live-p waveform--ffmpeg-process)
 	          (quit-process waveform--ffmpeg-process))
 	        (setq waveform--ffmpeg-process
