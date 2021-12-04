@@ -120,12 +120,13 @@ FILENAME is the input file. The result can be used in `create-image'."
     (define-key map " " #'waveform-mpv-position)
     (define-key map [left] #'waveform-mpv-seek-backward)
     (define-key map [right] #'waveform-mpv-seek-forward)
+    (define-key map [S-left] #'waveform-mpv-seek-backward-small)
+    (define-key map [S-right] #'waveform-mpv-seek-forward-small)
     (define-key map "j" #'waveform-mpv-seek-to)
-    (define-key map "r" #'waveform-mpv-return-to-mark)
+    (define-key map (kbd "DEL") #'waveform-mpv-return-to-mark)
     (define-key map ">" #'mpv-speed-increase)
     (define-key map "<" #'mpv-speed-decrease)
     map))
-
 
 (defvar waveform--sample-timer nil)
 
@@ -214,6 +215,16 @@ If ARG is numeric, it is used as the number of seconds.  Else each use
 of \\[universal-argument] will add another `mpv-seek-step' seconds."
   (interactive "P")
   (waveform-mpv-seek-to (- (mpv-get-playback-position) (mpv--raw-prefix-to-seconds arg))))
+
+(defun waveform-mpv-seek-backward-small ()
+  "Seek backward 1 second."
+  (interactive)
+  (waveform-mpv-seek-to (- (mpv-get-playback-position) 1)))
+
+(defun waveform-mpv-seek-forward-small ()
+  "Seek backward 1 second."
+  (interactive)
+  (waveform-mpv-seek-to (+ (mpv-get-playback-position) 1)))
 
 (defun waveform-mpv-seek-forward (arg)
   "Seek forward ARG seconds.
