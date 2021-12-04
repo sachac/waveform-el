@@ -62,6 +62,13 @@ should return a string to include in the filter.  See
           (function :tag "Function to call with the width and height"))
   :group 'waveform)
 
+(defcustom waveform-save-cache nil
+  "When non-nil, cache waveforms in `waveform-cache-directory'.")
+
+(defcustom waveform-cache-directory (concat user-emacs-directory
+                                            (file-name-as-directory "waveforms"))
+  "Directory to use for caching waveforms.")
+
 (defun waveform-fancy-filter (width height)
   "Displays green waveforms on a dark green background with a grid.
 WIDTH and HEIGHT are given in pixels."
@@ -250,6 +257,20 @@ of \\[universal-argument] will add another `mpv-seek-step' seconds."
   (interactive)
   (kill-buffer)
   (mpv-kill))
+
+(defun waveform-cache-p (file)
+  "Return t if FILE has already been cached.")
+
+(defun waveform-cache-actual-p (file)
+  "Return t if the cache of FILE is actual.
+A cache is considered actual if the hash of FILE corresponds the
+one stored by waveform.el."
+  (waveform-cache-p file))
+
+(defun waveform-cache-read (file)
+  "Read")
+
+(defun waveform-cache)
 
 (defvar-local waveform-mark-msecs nil)
 (defvar-local waveform--position-indicator nil)
