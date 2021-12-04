@@ -50,7 +50,7 @@ nil means keep playing."
   :type 'integer
   :group 'waveform)
 
-(defcustom waveform-ffmpeg-filter-args 'waveform-fancy-filter
+(defcustom waveform-ffmpeg-filter-args ":colors=white" ;; 'waveform-fancy-filter ;; ":colors=white" ;; 'waveform-fancy-filter
   "Additional arguments for the showwavespic filter.
 To change the foreground color, use something like
 \":colors=white\".  You can also set it to a function.  The
@@ -74,7 +74,7 @@ WIDTH and HEIGHT are given in pixels."
 (defvar-local waveform--ffmpeg-process nil)
 
 (defun waveform-for-file (filename width height &optional callback)
-  "Returns a string representing the image data in PNG format.
+  "Returns a string representing the image data in JPEG format.
 FILENAME is the input file. The result can be used in `create-image'."
   (let* ((args
           (append
@@ -153,39 +153,82 @@ FILENAME is the input file. The result can be used in `create-image'."
     (message "%s" (waveform-msecs-to-timestamp ms))
     (kill-new (waveform-msecs-to-timestamp ms))))
 
+
+(defun waveform--update-position (marker)
+  (let* ((buf (marker-buffer marker))
+         (win (get-buffer-window buf)))
+    (if (buffer-live-p buf)
+        (when (pos-visible-in-window-p marker win t)
+          (with-current-buffer buf
+            (let* ((pos (mpv-get-playback-position))
+                   (x (if pos (/ (* waveform--width (- (* 1000 pos) waveform--start-ms))
+                                 waveform--duration)))
+                   (inhibit-read-only t))
+              (when x
+                (svg-line waveform--svg x 0 x waveform--height :id "position" :stroke-color "blue")))))
+      (dolist (timer timer-list)
+        (if (and (eq (timer--function timer) #'waveform--update-position)
+                 (equal (car (timer--args timer)) marker))
+            (cancel-timer timer))))))
+
 (defun waveform-select (event)
   (interactive "e")
   "Set `my-waveform-clicked-ms' to the timestamp of the clicked-on image."
-  (let ((ms (waveform-mouse-event-to-ms event)))
+  (let ((ms (waveform-mouse-event-to-ms event))
+        (position (dom-by-id waveform--svg "position"))
+        (x (car (elt (elt event 1) 2))))
     (setq waveform-clicked-ms ms)
+    (let ((inhibit-read-only t))
+      (svg-line waveform--svg x 0 x waveform--height :id "mark" :stroke-color "green"))
     (message "%s" (waveform-msecs-to-timestamp ms))
     (kill-new (waveform-msecs-to-timestamp ms))
     (waveform-play-sample (plist-get (cdr (elt (cadr event) 7)) :filename) ms)))
 
 (define-derived-mode waveform-mode fundamental-mode "Waveform"
-  "Display a waveform."
-  )
+  "Display a waveform.")
 
 (defun waveform-quit ()
   (interactive)
   (kill-buffer)
   (mpv-kill))
 
+(defvar-local waveform--position-indicator nil)
+(defvar-local waveform--svg nil)
+(defvar-local waveform--start-ms nil)
+(defvar-local waveform--stop-ms nil)
+(defvar-local waveform--height nil)
+(defvar-local waveform--width nil)
+(defvar-local waveform--media-file nil)
+(defvar-local waveform--duration nil)
+(defvar-local waveform--position-timer nil)
+;; (waveform-show (expand-file-name "~/vendor/emacsconf-2021-private/captions/emacsconf-2021-news--emacs-news-highlights--sacha-chua--main.webm"))
 (defun waveform-show (file)
   (interactive "FMedia file: ")
   (setq file (expand-file-name file))
   (let* ((image-string (waveform-for-file file (window-pixel-width) (window-pixel-height)))
          (end-ms (waveform-file-duration-ms file))
-         (inhibit-read-only t))
+         (inhibit-read-only t)
+         (height (window-pixel-height))
+         (width (window-pixel-width))
+         (svg (svg-create width height)))
+    (svg-embed svg image-string "image/jpeg" t :x 0 :y 0 :width (window-pixel-width) :height (window-pixel-height))
+    (svg-line svg 0 (/ height 2) width (/ height 2) :stroke-color "gray")
+    (svg-line svg 20 0 20 height :stroke-color "green" :id "mark")
+    (svg-line svg 20 0 20 height :stroke-color "blue" :id "position")
     (switch-to-buffer (get-buffer-create "*Waveform*"))
     (erase-buffer)
-    (insert (propertize "x"
-                        'display (create-image image-string nil t :start-ms 0 :stop-ms end-ms :filename file)
-                        'filename file
-                        'start-ms 0
-                        'stop-ms end-ms))
-    (read-only-mode 1)
     (waveform-mode)
+    (setq waveform--svg svg)
+    (svg-insert-image waveform--svg)
+    (read-only-mode 1)
+    (setq waveform--start-ms 0
+          waveform--stop-ms end-ms
+          waveform--media-file file
+          waveform--duration end-ms
+          waveform--height height
+          waveform--width width)
+    (when (timerp waveform--position-timer) (cancel-timer waveform--position-timer))
+    (setq waveform--position-timer (run-at-time 0 0.2 #'waveform--update-position (point-marker)))
     (mpv-start file)))
 
 (defun waveform-mouse-event-to-ms (event)
@@ -194,10 +237,9 @@ FILENAME is the input file. The result can be used in `create-image'."
          (width (car (elt (cadr event) 9))))
     (floor (+ (* (/ (* 1.0 x)
                     width)
-                 (- (plist-get (cdr (elt (cadr event) 7)) :stop-ms)
-                    (plist-get (cdr (elt (cadr event) 7)) :start-ms)))
-              (plist-get (cdr (elt (cadr event) 7)) :start-ms)))))
-;; (waveform-show (expand-file-name "~/vendor/emacsconf-2021-private/questions/nongnu-webcams.webm"))
+                 waveform--duration)
+              waveform--start-ms))))
+
 ;; (create-image (waveform-for-file (expand-file-name "~/code/emacsconf-2021-emacs-news-highlights/output.webm") (window-pixel-width) (window-pixel-height)) nil t)
 (provide 'waveform)
 ;;; waveform.el ends here
