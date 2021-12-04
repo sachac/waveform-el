@@ -43,7 +43,7 @@
   :type 'integer
   :group 'waveform)
 
-(defcustom waveform-sample-msecs nil
+(defcustom waveform-sample-msecs 2000
   "Number of milliseconds to play when jumping around a waveform.
 0 means don't play a sample.
 nil means keep playing."
@@ -110,12 +110,22 @@ FILENAME is the input file. The result can be used in `create-image'."
         (apply 'call-process waveform-ffmpeg-executable nil t nil args)
         (encode-coding-string (buffer-string) 'binary)))))
 
+
 (defvar waveform-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map [mouse-1] #'waveform-select)
+    ;; (define-key map [mouse-3] #'waveform-sample)
+    (define-key map [down-mouse-3] #'waveform-sample)
     (define-key map "q" #'waveform-quit)
     (define-key map " " #'waveform-mpv-position)
+    (define-key map [left] #'waveform-mpv-seek-backward)
+    (define-key map [right] #'waveform-mpv-seek-forward)
+    (define-key map "j" #'waveform-mpv-seek-to)
+    (define-key map "r" #'waveform-mpv-return-to-mark)
+    (define-key map ">" #'mpv-speed-increase)
+    (define-key map "<" #'mpv-speed-decrease)
     map))
+
 
 (defvar waveform--sample-timer nil)
 
@@ -148,11 +158,7 @@ FILENAME is the input file. The result can be used in `create-image'."
 
 (defun waveform-mpv-position ()
   (interactive)
-  (let ((ms (* (mpv-get-playback-position) 1000.0)))
-    (setq waveform-clicked-ms ms)
-    (message "%s" (waveform-msecs-to-timestamp ms))
-    (kill-new (waveform-msecs-to-timestamp ms))))
-
+  (waveform--mark (mpv-get-playback-position)))
 
 (defun waveform--update-position (marker)
   (let* ((buf (marker-buffer marker))
@@ -160,29 +166,71 @@ FILENAME is the input file. The result can be used in `create-image'."
     (if (buffer-live-p buf)
         (when (pos-visible-in-window-p marker win t)
           (with-current-buffer buf
-            (let* ((pos (mpv-get-playback-position))
-                   (x (if pos (/ (* waveform--width (- (* 1000 pos) waveform--start-ms))
-                                 waveform--duration)))
-                   (inhibit-read-only t))
-              (when x
-                (svg-line waveform--svg x 0 x waveform--height :id "position" :stroke-color "blue")))))
+            (when (mpv-live-p)
+              (condition-case _
+                  (let* ((pos (mpv-get-playback-position))
+                         (x (and pos (waveform-ms-to-x (* pos 1000))))
+                         (inhibit-read-only t))
+                    (when x
+                      (svg-line waveform--svg x 0 x waveform--height :id "position" :stroke-color "blue")))
+                (error nil)))))
       (dolist (timer timer-list)
         (if (and (eq (timer--function timer) #'waveform--update-position)
                  (equal (car (timer--args timer)) marker))
             (cancel-timer timer))))))
 
+(defun waveform--mark (secs)
+  (let ((inhibit-read-only t)
+        (x (waveform-ms-to-x (* secs 1000))))
+    (setq waveform-mark-msecs (* 1000 secs))
+    (svg-line waveform--svg x 0 x waveform--height :id "mark" :stroke-color "green")
+    (message "%s" (waveform-msecs-to-timestamp (* 1000 secs)))  
+    (kill-new (waveform-msecs-to-timestamp (* 1000 secs)))))
+
+(defun waveform--string-to-secs (secs)
+  (cond ((numberp secs) secs)
+        ((string-match ":" secs) (org-timer-hms-to-secs secs))
+        (t (string-to-number secs))))
+
+(defun waveform-sample-at (secs)
+  (interactive "MPosition (seconds or timestamp): ")
+  (setq secs (waveform--string-to-secs secs))
+  (waveform--mark secs)
+  (waveform-play-sample waveform--media-file (* secs 1000)
+                        (+ (* secs 1000) waveform-sample-msecs)))
+(defun waveform-mpv-seek-to (secs)
+  (interactive "MPosition (seconds or timestamp): ")
+  (setq secs (waveform--string-to-secs secs))
+  (waveform--mark secs)
+  (mpv-seek secs))
+
+(defun waveform-mpv-return-to-mark ()
+  (interactive)
+  (waveform-mpv-seek-to (/ waveform-mark-msecs 1000.0)))
+
+(defun waveform-mpv-seek-backward (arg)
+  "Seek backward ARG seconds.
+If ARG is numeric, it is used as the number of seconds.  Else each use
+of \\[universal-argument] will add another `mpv-seek-step' seconds."
+  (interactive "P")
+  (waveform-mpv-seek-to (- (mpv-get-playback-position) (mpv--raw-prefix-to-seconds arg))))
+
+(defun waveform-mpv-seek-forward (arg)
+  "Seek forward ARG seconds.
+If ARG is numeric, it is used as the number of seconds.  Else each use
+of \\[universal-argument] will add another `mpv-seek-step' seconds."
+  (interactive "P")
+  (waveform-mpv-seek-to (+ (mpv-get-playback-position) (mpv--raw-prefix-to-seconds arg))))
+
 (defun waveform-select (event)
+  "Copy the time at point and seek to it."
   (interactive "e")
-  "Set `my-waveform-clicked-ms' to the timestamp of the clicked-on image."
-  (let ((ms (waveform-mouse-event-to-ms event))
-        (position (dom-by-id waveform--svg "position"))
-        (x (car (elt (elt event 1) 2))))
-    (setq waveform-clicked-ms ms)
-    (let ((inhibit-read-only t))
-      (svg-line waveform--svg x 0 x waveform--height :id "mark" :stroke-color "green"))
-    (message "%s" (waveform-msecs-to-timestamp ms))
-    (kill-new (waveform-msecs-to-timestamp ms))
-    (waveform-play-sample (plist-get (cdr (elt (cadr event) 7)) :filename) ms)))
+  (waveform-mpv-seek-to (/ (waveform-mouse-event-to-ms event) 1000.0)))
+
+(defun waveform-sample (event)
+  "Copy the time at point and seek to it."
+  (interactive "e")
+  (waveform-sample-at (/ (waveform-mouse-event-to-ms event) 1000.0)))
 
 (define-derived-mode waveform-mode fundamental-mode "Waveform"
   "Display a waveform.")
@@ -192,6 +240,7 @@ FILENAME is the input file. The result can be used in `create-image'."
   (kill-buffer)
   (mpv-kill))
 
+(defvar-local waveform-mark-msecs nil)
 (defvar-local waveform--position-indicator nil)
 (defvar-local waveform--svg nil)
 (defvar-local waveform--start-ms nil)
@@ -230,6 +279,10 @@ FILENAME is the input file. The result can be used in `create-image'."
     (when (timerp waveform--position-timer) (cancel-timer waveform--position-timer))
     (setq waveform--position-timer (run-at-time 0 0.2 #'waveform--update-position (point-marker)))
     (mpv-start file)))
+
+(defun waveform-ms-to-x (msecs)
+  "Return X position of MSECS."
+  (/ (* waveform--width (- msecs waveform--start-ms)) waveform--duration))
 
 (defun waveform-mouse-event-to-ms (event)
   "Return the millisecond position of EVENT."
