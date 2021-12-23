@@ -28,6 +28,22 @@
 
 ;;; Code:
 
+(defcustom waveform-output-format "vtt"
+  "Type of timestamp to display or copy."
+  :type '(choice
+          (const "vtt" :tag "WebVTT")
+          (const "seconds" :tag "Seconds")
+          (const "msecs" :tag "Milliseconds")))
+
+(defun waveform--format-time (msecs &optional format)
+  "Return MSECS as a string in FORMAT.
+If FORMAT is unspecified,  use `waveform-output-format'."
+  (pcase (or format waveform-output-format)
+    ("vtt" (waveform-msecs-to-timestamp msecs))
+    ("seconds" (format "%.3f" (/ msecs 1000.0)))
+    ("msecs" (number-to-string msecs))
+    (_ (error "Unknown format."))))
+
 (defcustom waveform-ffmpeg-executable "ffmpeg"
   "Path to the FFMPEG executable used for generating waveforms."
   :type 'file
@@ -110,12 +126,21 @@ FILENAME is the input file. The result can be used in `create-image'."
         (apply 'call-process waveform-ffmpeg-executable nil t nil args)
         (encode-coding-string (buffer-string) 'binary)))))
 
+(defun waveform-set-output-format (format)
+  "Change the output format to FORMAT.
+Copy the last mark to the kill-ring in the new format."
+  (interactive (list (completing-read "Format: " '("vtt" "seconds" "msecs"))))
+  (setq waveform-output-format format)
+  (when waveform-mark-msecs
+    (message "%s" (waveform--format-time waveform-mark-msecs format))
+    (kill-new (waveform--format-time waveform-mark-msecs format))))
 
 (defvar waveform-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map [mouse-1] #'waveform-select)
     ;; (define-key map [mouse-3] #'waveform-sample)
     (define-key map [down-mouse-3] #'waveform-sample)
+    (define-key map "f" #'waveform-set-output-format)
     (define-key map "q" #'waveform-quit)
     (define-key map " " #'waveform-mpv-position)
     (define-key map [left] #'waveform-mpv-seek-backward)
@@ -184,8 +209,8 @@ FILENAME is the input file. The result can be used in `create-image'."
         (x (waveform-ms-to-x (* secs 1000))))
     (setq waveform-mark-msecs (* 1000 secs))
     (svg-line waveform--svg x 0 x waveform--height :id "mark" :stroke-color "green")
-    (message "%s" (waveform-msecs-to-timestamp (* 1000 secs)))
-    (kill-new (waveform-msecs-to-timestamp (* 1000 secs)))))
+    (message "%s" (waveform--format-time waveform-mark-msecs))
+    (kill-new (waveform--format-time waveform-mark-msecs))))
 
 (defun waveform--string-to-secs (secs)
   (cond ((numberp secs) secs)
