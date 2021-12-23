@@ -21,7 +21,7 @@
 ;;; Commentary:
 
 ;; You will also need the mpv package for Emacs and the MPV client.
-;; 
+;;
 ;; M-x waveform-show to show the waveform for a file
 ;; left-click to copy timestamp and play
 ;; q to quit
@@ -65,8 +65,8 @@ should return a string to include in the filter.  See
 (defun waveform-fancy-filter (width height)
   "Displays green waveforms on a dark green background with a grid.
 WIDTH and HEIGHT are given in pixels."
-	(concat
-	 ":colors=#9cf42f[fg];"
+  (concat
+   ":colors=#9cf42f[fg];"
    (format "color=s=%dx%d:color=#44582c,drawgrid=width=iw/10:height=ih/5:color=#9cf42f@0.1[bg];"
            width height)
    "[bg][fg]overlay=format=auto,drawbox=x=(iw-w)/2:y=(ih-h)/2:w=iw:h=1:color=#9cf42f"))
@@ -95,10 +95,10 @@ FILENAME is the input file. The result can be used in `create-image'."
             "-f" "image2" "-"))))
     (if (functionp callback)
         (let* ((buffer (generate-new-buffer " *temp*")))
-	        (when (process-live-p waveform--ffmpeg-process)
-	          (quit-process waveform--ffmpeg-process))
-	        (setq waveform--ffmpeg-process
-		            (apply 'start-process "ffmpeg" buffer
+          (when (process-live-p waveform--ffmpeg-process)
+            (quit-process waveform--ffmpeg-process))
+          (setq waveform--ffmpeg-process
+                (apply 'start-process "ffmpeg" buffer
                        waveform-ffmpeg-executable args))
           (set-process-sentinel
            waveform--ffmpeg-process
@@ -150,7 +150,7 @@ FILENAME is the input file. The result can be used in `create-image'."
   (* 1000
      (string-to-number
       (shell-command-to-string
-       (concat "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "   (shell-quote-argument (expand-file-name filename)))))))
+       (concat "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 " (shell-quote-argument (expand-file-name filename)))))))
 
 (defun waveform-msecs-to-timestamp (msecs)
   "Convert MSECS to string in the format HH:MM:SS,MS."
@@ -184,7 +184,7 @@ FILENAME is the input file. The result can be used in `create-image'."
         (x (waveform-ms-to-x (* secs 1000))))
     (setq waveform-mark-msecs (* 1000 secs))
     (svg-line waveform--svg x 0 x waveform--height :id "mark" :stroke-color "green")
-    (message "%s" (waveform-msecs-to-timestamp (* 1000 secs)))  
+    (message "%s" (waveform-msecs-to-timestamp (* 1000 secs)))
     (kill-new (waveform-msecs-to-timestamp (* 1000 secs)))))
 
 (defun waveform--string-to-secs (secs)
