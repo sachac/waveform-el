@@ -28,12 +28,20 @@
 
 ;;; Code:
 
+(defcustom waveform-auto-update-position t
+  "Move the position marker as mpv plays."
+  :type '(choice
+          (const t :tag "Update automatically")
+          (const nil :tag "Update manually"))
+  :group 'waveform)
+
 (defcustom waveform-output-format "vtt"
   "Type of timestamp to display or copy."
   :type '(choice
           (const "vtt" :tag "WebVTT")
           (const "seconds" :tag "Seconds")
-          (const "msecs" :tag "Milliseconds")))
+          (const "msecs" :tag "Milliseconds"))
+  :group 'waveform)
 
 (defun waveform--format-time (msecs &optional format)
   "Return MSECS as a string in FORMAT.
@@ -135,6 +143,16 @@ Copy the last mark to the kill-ring in the new format."
     (message "%s" (waveform--format-time waveform-mark-msecs format))
     (kill-new (waveform--format-time waveform-mark-msecs format))))
 
+(defun waveform-mpv-frame-step ()
+  "Step one frame forward."
+  (interactive)
+  (mpv--enqueue '("frame-step") #'ignore))
+
+(defun waveform-mpv-frame-back-step ()
+  "Step one frame backward."
+  (interactive)
+  (mpv--enqueue '("frame-back-step") #'ignore))
+
 (defvar waveform-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map [mouse-1] #'waveform-select)
@@ -142,13 +160,16 @@ Copy the last mark to the kill-ring in the new format."
     (define-key map [down-mouse-3] #'waveform-sample)
     (define-key map "f" #'waveform-set-output-format)
     (define-key map "q" #'waveform-quit)
-    (define-key map " " #'waveform-mpv-position)
+    (define-key map "p" #'waveform-mpv-position)
+    (define-key map " " #'mpv-pause)
     (define-key map [left] #'waveform-mpv-seek-backward)
     (define-key map [right] #'waveform-mpv-seek-forward)
     (define-key map [S-left] #'waveform-mpv-seek-backward-small)
     (define-key map [S-right] #'waveform-mpv-seek-forward-small)
     (define-key map "j" #'waveform-mpv-seek-to)
     (define-key map (kbd "DEL") #'waveform-mpv-return-to-mark)
+    (define-key map "." #'waveform-mpv-frame-step)
+    (define-key map "," #'waveform-mpv-frame-back-step)
     (define-key map ">" #'mpv-speed-increase)
     (define-key map "<" #'mpv-speed-decrease)
     map))
@@ -167,9 +188,10 @@ Copy the last mark to the kill-ring in the new format."
       (cancel-timer waveform--sample-timer)
       (setq waveform--sample-timer nil))
     (setq waveform--sample-timer
-          (run-at-time (/ (if end-ms (- end-ms ms) waveform-sample-msecs) 1000.0) nil
-                       #'waveform--restore-mpv-position
-                       ms))))
+          (run-at-time
+           (/ (if end-ms (- end-ms ms) waveform-sample-msecs) 1000.0) nil
+           #'waveform--restore-mpv-position
+           ms))))
 
 (defun waveform-file-duration-ms (filename &optional type)
   (* 1000
@@ -197,12 +219,14 @@ Copy the last mark to the kill-ring in the new format."
                        (x (and pos (waveform-ms-to-x (* pos 1000))))
                        (inhibit-read-only t))
                   (when x
-                    (svg-line waveform--svg x 0 x waveform--height :id "position" :stroke-color "blue"))))
+                    (svg-line waveform--svg x 0 x "100%" :id "position" :stroke-color "blue"))))
             (error nil)))
-    (when (or (timerp waveform--sample-timer)
-              (not (buffer-live-p waveform--current-mpv-buffer)))
-      (cancel-timer waveform--sample-timer)
-      (setq waveform--position-timer nil))))
+    (when waveform-auto-update-position
+      (when (or (timerp waveform--sample-timer)
+                (not (buffer-live-p waveform--current-mpv-buffer)))
+        (when (timerp waveform--sample-timer)
+          (cancel-timer waveform--sample-timer))
+        (setq waveform--position-timer nil)))))
 
 (defun waveform--mark (secs)
   (let ((inhibit-read-only t)
@@ -274,7 +298,9 @@ of \\[universal-argument] will add another `mpv-seek-step' seconds."
   (interactive)
   (when (eq waveform--current-mpv-buffer (current-buffer))
     (mpv-kill)
-    (cancel-timer waveform--position-timer)
+    (when (timerp waveform--position-timer)
+      (cancel-timer waveform--position-timer)
+      (cancel-function-timers #'waveform--update-position))
     (setq waveform--position-timer nil))
   (kill-buffer))
 
@@ -300,13 +326,14 @@ of \\[universal-argument] will add another `mpv-seek-step' seconds."
          (height (window-pixel-height))
          (width (window-pixel-width))
          (svg (svg-create width height)))
-    (svg-embed svg image-string "image/jpeg" t :x 0 :y 0 :width (window-pixel-width) :height (window-pixel-height))
-    (svg-line svg 0 (/ height 2) width (/ height 2) :stroke-color "gray")
-    (svg-line svg 20 0 20 height :stroke-color "green" :id "mark")
-    (svg-line svg 20 0 20 height :stroke-color "blue" :id "position")
+    (svg-embed svg image-string "image/jpeg" t :x 0 :y 0 :width "100%" :height "100%" :preserveAspectRatio "none")
+    (svg-line svg 0 "50%" "100%" "50%" :stroke-color "gray")
+    (svg-line svg 20 0 20 "100%" :stroke-color "green" :id "mark")
+    (svg-line svg 20 0 20 "100%" :stroke-color "blue" :id "position")
     (switch-to-buffer (get-buffer-create (format "*Waveform for %s*" file)))
     (erase-buffer)
     (waveform-mode)
+    (add-hook 'window-configuration-change-hook #'waveform-resize-window nil t)
     (setq waveform--svg svg)
     (svg-insert-image waveform--svg)
     (read-only-mode 1)
@@ -319,25 +346,42 @@ of \\[universal-argument] will add another `mpv-seek-step' seconds."
     (setq waveform--current-mpv-buffer (current-buffer))
     (when (timerp waveform--position-timer)
       (cancel-timer waveform--position-timer)
+      (cancel-function-timers #'waveform--update-position)
       (setq waveform--position-timer nil))
     (add-hook 'mpv-on-event-hook #'waveform--mpv-handle-event)
     (mpv-start file)))
 
+(defun waveform-resize-window ()
+  "Transform SVG to fit."
+  (dom-set-attribute waveform--svg 'width (window-pixel-width))
+  (dom-set-attribute waveform--svg 'height (window-pixel-height))
+  (setq waveform--width (window-pixel-width))
+  (setq waveform--height (window-pixel-height))
+  (waveform--update-position))
+
 (defun waveform--mpv-handle-event (event)
   "Pause and restart the position timer as needed."
-  (cond
-   ((equal (assoc-default 'event event) "pause")
+  (if waveform-auto-update-position
+      (cond
+       ((equal (assoc-default 'event event) "pause")
+        (when (timerp waveform--position-timer)
+          (cancel-timer waveform--position-timer)
+          (cancel-function-timers #'waveform--update-position)
+          (setq waveform--position-timer nil)))
+       ((member (assoc-default 'event event) '("playback-restart" "unpause"))
+        (unless (timerp waveform--position-timer)
+          (waveform--update-position)
+          (with-current-buffer waveform--current-mpv-buffer
+            (setq waveform--position-timer
+                  (run-at-time 0
+                               (max
+                                (/ (/ waveform--duration waveform--width) 1000.0)
+                                1)
+                               #'waveform--update-position))))))
     (when (timerp waveform--position-timer)
       (cancel-timer waveform--position-timer)
-      (setq waveform--position-timer nil)))
-   ((member (assoc-default 'event event) '("playback-restart" "unpause"))
-    (unless (timerp waveform--position-timer)
-      (waveform--update-position)
-      (with-current-buffer waveform--current-mpv-buffer
-        (setq waveform--position-timer
-              (run-at-time 0
-                           (/ (/ waveform--duration waveform--width) 1000.0)
-                           #'waveform--update-position)))))))
+      (cancel-function-timers #'waveform--update-position)
+      (setq waveform--position-timer nil))))
 
 (defun waveform-ms-to-x (msecs)
   "Return X position of MSECS."

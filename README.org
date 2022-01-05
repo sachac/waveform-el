@@ -16,7 +16,8 @@ player, and the [[https://www.ffmpeg.org/][ffmpeg]] command-line tool. Here's my
 - =left-click= on the waveform to copy the timestamp and start playing from there
 - =right-click= to sample from that spot
 - =left= and =right= to adjust the position, =shift-left= and =shift-right= to take smaller steps
-- =SPC= to copy the current MPV position
+- =p= to copy the current MPV position
+- =SPC= to toggle pausing
 - =j= to jump to a timestamp (hh:mm:ss or seconds)
 - =>= to speed up, =<= to slow down
 
